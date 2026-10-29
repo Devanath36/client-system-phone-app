@@ -1,0 +1,104 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for secure Role-Based Access Control (RBAC)
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isManager() {
+      return isAuthenticated() && (
+        getUserData().role == 'MANAGER' || request.auth.token.role == 'MANAGER'
+      );
+    }
+
+    function isTeamLead() {
+      return isAuthenticated() && (
+        getUserData().role == 'TEAM_LEAD' || request.auth.token.role == 'TEAM_LEAD'
+      );
+    }
+
+    function isTeamMember() {
+      return isAuthenticated() && (
+        getUserData().role == 'TEAM_MEMBER' || request.auth.token.role == 'TEAM_MEMBER'
+      );
+    }
+
+    // 1. Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isManager() || request.auth.uid == userId;
+    }
+
+    // 2. Clients collection (Manager full access; Leads and Members read-only)
+    match /clients/{clientId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isManager();
+    }
+
+    // 3. Teams collection
+    match /teams/{teamId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isManager();
+    }
+
+    // 4. Projects collection
+    match /projects/{projectId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isManager();
+    }
+
+    // 5. Tasks collection
+    match /tasks/{taskId} {
+      allow read: if isAuthenticated();
+      // Managers and Team Leads can create and reassign tasks
+      allow create: if isManager() || isTeamLead();
+      // Members can update task status and submission proof
+      allow update: if isManager() || isTeamLead() || (
+        isTeamMember() && resource.data.assignedMemberId == request.auth.uid
+      );
+      allow delete: if isManager();
+
+      // Per-Task Audit Subcollection (Immutable & Append-Only)
+      match /audit_history/{auditId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow update, delete: if false; // Audit records are immutable
+      }
+    }
+
+    // 6. Submissions collection
+    match /submissions/{submissionId} {
+      allow read: if isAuthenticated();
+      // Assigned member can create submission
+      allow create: if isAuthenticated();
+      // Only Leads and Managers can review (approve/reject)
+      allow update: if isManager() || isTeamLead();
+      allow delete: if isManager();
+    }
+
+    // 7. Real-time Notifications collection
+    match /notifications/{notifId} {
+      allow read: if isAuthenticated() && (
+        resource.data.targetUserId == request.auth.uid ||
+        resource.data.targetRole == getUserData().role ||
+        isManager()
+      );
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && resource.data.targetUserId == request.auth.uid;
+      allow delete: if isManager();
+    }
+
+    // 8. Global Compliance Audit Logs (Immutable)
+    match /audit_logs/{logId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+  }
+}

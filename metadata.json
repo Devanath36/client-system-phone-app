@@ -1,0 +1,6 @@
+{
+  "name": "Client Management System",
+  "description": "Enterprise client and project management platform with role-based workflows for Managers, Team Leads, and Members.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
